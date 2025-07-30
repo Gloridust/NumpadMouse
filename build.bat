@@ -1,16 +1,12 @@
 @echo off
-echo 正在编译 NumpadMouse...
-echo.
-
-REM 检查是否安装了所需的包
-echo 检查依赖包...
+echo 正在安装/更新依赖包...
+pip install --upgrade pip
 pip install -r requirements.txt
 
 echo.
-echo 开始编译...
+echo 正在构建可执行文件...
 python setup.py build
 
 echo.
-echo 编译完成！
-echo 可执行文件位于 build 目录中
+echo 构建完成！可执行文件位于 build 文件夹中。
 pause
