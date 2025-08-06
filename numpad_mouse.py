@@ -6,7 +6,7 @@ import threading
 import time
 import pyautogui
 import keyboard
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw, ImageFont
 import sys
 
 class NumpadMouseApp:
@@ -26,6 +26,10 @@ class NumpadMouseApp:
         # 当前模式：'setup' 或 'running'
         self.mode = 'setup'
         self.is_listening = False
+        
+        # 标签显示相关
+        self.overlay_window = None
+        self.show_labels = False
         
         # 创建界面
         self.create_widgets()
@@ -94,6 +98,13 @@ class NumpadMouseApp:
         clear_btn = ttk.Button(info_frame, text="清除所有位置", command=self.clear_all_positions)
         clear_btn.grid(row=2, column=0, pady=(10, 0))
         
+        # 显示标签按钮
+        self.show_labels_var = tk.BooleanVar()
+        show_labels_check = ttk.Checkbutton(info_frame, text="显示位置标签", 
+                                          variable=self.show_labels_var, 
+                                          command=self.toggle_labels)
+        show_labels_check.grid(row=3, column=0, pady=(10, 0))
+        
         # 运行模式框架
         self.running_frame = ttk.LabelFrame(main_frame, text="运行控制", padding="10")
         self.running_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E))
@@ -120,11 +131,14 @@ class NumpadMouseApp:
 1. 点击小键盘数字按钮
 2. 在屏幕上点击要设置的目标位置
 3. 重复以上步骤设置所有需要的位置
+4. 勾选"显示位置标签"可在屏幕上显示半透明数字标签
 
 运行模式：
 1. 点击"开始监听"
 2. 按下小键盘对应数字键即可模拟鼠标点击
-3. 按ESC键可以停止监听"""
+3. 按ESC键可以停止监听
+
+提示：标签显示功能可帮助您直观地看到已设置的点击位置"""
         
         help_label = ttk.Label(help_frame, text=help_text, justify=tk.LEFT)
         help_label.grid(row=0, column=0, sticky=tk.W)
@@ -167,6 +181,9 @@ class NumpadMouseApp:
             self.update_position_list()
             capture_window.destroy()
             self.root.deiconify()  # 显示主窗口
+            # 如果标签显示开启，更新标签
+            if self.show_labels_var.get():
+                self.update_overlay()
             messagebox.showinfo("设置成功", f"数字键 {num} 的位置已设置为: ({x}, {y})")
             
         def on_escape(event):
@@ -183,6 +200,9 @@ class NumpadMouseApp:
             self.positions.clear()
             self.save_config()
             self.update_position_list()
+            # 更新标签显示
+            if self.show_labels_var.get():
+                self.update_overlay()
             
     def update_position_list(self):
         """更新位置列表显示"""
@@ -276,10 +296,93 @@ class NumpadMouseApp:
         except Exception as e:
             print(f"保存配置失败: {e}")
             
+    def toggle_labels(self):
+        """切换标签显示"""
+        self.show_labels = self.show_labels_var.get()
+        if self.show_labels:
+            self.create_overlay()
+        else:
+            self.hide_overlay()
+            
+    def create_overlay(self):
+        """创建覆盖层窗口"""
+        if self.overlay_window:
+            self.overlay_window.destroy()
+            
+        # 创建全屏透明窗口
+        self.overlay_window = tk.Toplevel()
+        self.overlay_window.attributes('-fullscreen', True)
+        self.overlay_window.attributes('-alpha', 0.7)
+        self.overlay_window.attributes('-topmost', True)
+        self.overlay_window.configure(bg='black')
+        
+        # 设置窗口穿透（允许点击穿透到下层窗口）
+        try:
+            # Windows系统设置窗口穿透
+            import ctypes
+            from ctypes import wintypes
+            
+            hwnd = self.overlay_window.winfo_id()
+            extended_style = ctypes.windll.user32.GetWindowLongW(hwnd, -20)  # GWL_EXSTYLE
+            ctypes.windll.user32.SetWindowLongW(hwnd, -20, extended_style | 0x80000 | 0x20)  # WS_EX_LAYERED | WS_EX_TRANSPARENT
+        except:
+            # 非Windows系统或设置失败时的处理
+            pass
+            
+        # 创建画布
+        self.overlay_canvas = tk.Canvas(self.overlay_window, highlightthickness=0)
+        self.overlay_canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # 更新标签
+        self.update_overlay()
+        
+    def update_overlay(self):
+        """更新覆盖层上的标签"""
+        if not self.overlay_window or not self.show_labels:
+            return
+            
+        # 清除现有标签
+        self.overlay_canvas.delete("all")
+        
+        # 获取屏幕尺寸
+        screen_width = self.overlay_window.winfo_screenwidth()
+        screen_height = self.overlay_window.winfo_screenheight()
+        
+        # 设置画布大小
+        self.overlay_canvas.configure(width=screen_width, height=screen_height, bg='')
+        
+        # 为每个位置创建标签
+        for num, pos in self.positions.items():
+            x, y = pos['x'], pos['y']
+            
+            # 创建圆形背景
+            radius = 25
+            circle_color = "#4CAF50"  # 绿色
+            text_color = "white"
+            
+            # 绘制圆形
+            self.overlay_canvas.create_oval(
+                x - radius, y - radius, x + radius, y + radius,
+                fill=circle_color, outline="white", width=2, tags="label"
+            )
+            
+            # 绘制数字
+            self.overlay_canvas.create_text(
+                x, y, text=str(num), fill=text_color,
+                font=("Arial", 16, "bold"), tags="label"
+            )
+            
+    def hide_overlay(self):
+        """隐藏覆盖层"""
+        if self.overlay_window:
+            self.overlay_window.destroy()
+            self.overlay_window = None
+
     def on_closing(self):
         """程序关闭时的处理"""
         if self.is_listening:
             self.stop_listening()
+        self.hide_overlay()
         self.root.destroy()
         
     def run(self):
