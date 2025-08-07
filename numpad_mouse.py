@@ -27,6 +27,9 @@ class NumpadMouseApp:
         self.mode = 'setup'
         self.is_listening = False
         
+        # 位置标签窗口列表
+        self.position_labels = []
+        
         # 创建界面
         self.create_widgets()
         
@@ -202,6 +205,9 @@ class NumpadMouseApp:
         self.stop_btn.config(state="normal")
         self.status_label.config(text="状态: 正在监听小键盘...")
         
+        # 显示位置标签
+        self.show_position_labels()
+        
         # 在新线程中监听键盘
         self.listen_thread = threading.Thread(target=self.keyboard_listener, daemon=True)
         self.listen_thread.start()
@@ -212,6 +218,9 @@ class NumpadMouseApp:
         self.start_btn.config(state="normal")
         self.stop_btn.config(state="disabled")
         self.status_label.config(text="状态: 已停止监听")
+        
+        # 隐藏位置标签
+        self.hide_position_labels()
         
     def keyboard_listener(self):
         """键盘监听线程"""
@@ -243,10 +252,19 @@ class NumpadMouseApp:
             if num in self.positions:
                 pos = self.positions[num]
                 try:
+                    # 先隐藏标签
+                    self.root.after(0, self.hide_position_labels)
+                    # 等待一小段时间确保标签隐藏
+                    time.sleep(0.05)
+                    # 执行点击
                     pyautogui.click(pos['x'], pos['y'])
                     print(f"点击位置 {num}: ({pos['x']}, {pos['y']})")
+                    # 点击完成后重新显示标签
+                    self.root.after(100, self.show_position_labels)
                 except Exception as e:
                     print(f"点击失败: {e}")
+                    # 即使点击失败也要重新显示标签
+                    self.root.after(100, self.show_position_labels)
                     
         # 注册键盘监听
         keyboard.on_press(on_key_press)
@@ -257,6 +275,68 @@ class NumpadMouseApp:
             
         # 取消监听
         keyboard.unhook_all()
+        
+    def show_position_labels(self):
+        """显示位置标签"""
+        for num, pos in self.positions.items():
+            # 创建小的透明窗口
+            label_window = tk.Toplevel(self.root)
+            label_window.overrideredirect(True)  # 去除窗口边框
+            label_window.attributes('-topmost', True)  # 置顶显示
+            label_window.attributes('-alpha', 0.7)  # 半透明
+            
+            # 创建圆形标签
+            canvas = tk.Canvas(label_window, width=40, height=40, highlightthickness=0, bg='black')
+            canvas.pack()
+            
+            # 绘制圆形背景
+            canvas.create_oval(2, 2, 38, 38, fill='#4CAF50', outline='#2E7D32', width=2)
+            
+            # 绘制数字文本
+            canvas.create_text(20, 20, text=str(num), fill='white', font=('Arial', 14, 'bold'))
+            
+            # 设置窗口位置（标签中心对准点击位置）
+            x = pos['x'] - 20  # 标签宽度40，所以减去20使中心对准
+            y = pos['y'] - 20  # 标签高度40，所以减去20使中心对准
+            label_window.geometry(f"40x40+{x}+{y}")
+            
+            # 强制更新窗口显示
+            label_window.update()
+            
+            # 设置窗口穿透（Windows系统）- 在窗口显示后设置
+            def set_click_through():
+                try:
+                    import ctypes
+                    # 获取窗口句柄
+                    hwnd = label_window.winfo_id()
+                    
+                    # 设置窗口样式为穿透
+                    GWL_EXSTYLE = -20
+                    WS_EX_LAYERED = 0x80000
+                    WS_EX_TRANSPARENT = 0x20
+                    
+                    # 获取当前扩展样式
+                    ex_style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+                    # 添加透明和穿透属性
+                    new_ex_style = ex_style | WS_EX_LAYERED | WS_EX_TRANSPARENT
+                    ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_ex_style)
+                except Exception as e:
+                    print(f"设置窗口穿透失败: {e}")
+            
+            # 延迟设置穿透，确保窗口已完全创建
+            label_window.after(100, set_click_through)
+            
+            # 添加到标签列表
+            self.position_labels.append(label_window)
+            
+    def hide_position_labels(self):
+        """隐藏位置标签"""
+        for label_window in self.position_labels:
+            try:
+                label_window.destroy()
+            except:
+                pass
+        self.position_labels.clear()
         
     def load_config(self):
         """加载配置文件"""
@@ -280,6 +360,8 @@ class NumpadMouseApp:
         """程序关闭时的处理"""
         if self.is_listening:
             self.stop_listening()
+        # 清理所有标签窗口
+        self.hide_position_labels()
         self.root.destroy()
         
     def run(self):
